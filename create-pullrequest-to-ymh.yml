@@ -1,0 +1,75 @@
+name: Create Pull Request to Repo B(sandbox)
+
+on:
+  push:
+    branches:
+      - 'dev-digital'
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the code from Repository A
+        uses: actions/checkout@v3
+
+      - name: Set up Git (Repository A)
+        run: |
+          git config user.name "fork-akinobu"
+          git config user.email "akinobu@fork.co.jp"
+
+      - name: Set BRANCH_NAME
+        run: |
+          export TZ=Asia/Tokyo
+          echo "BRANCH_NAME=dev-digital-$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_ENV
+
+      - name: Clone Repo B
+        uses: actions/checkout@v3
+        with:
+          repository: YMEH-system/sandbox1
+          path: repositoryB
+          token: ${{ secrets.REPO_SAND_TOKEN }}
+          ref: dev-digital
+
+      - name: Create Branch and Copy changes (Repo B)
+        run: |
+          cd repositoryB
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+          git checkout -b ${{ env.BRANCH_NAME }}
+
+          rsync -av --delete --exclude='.git' --exclude='.github/workflows' --exclude='README.md' --exclude='.gitignore' --exclude='repositoryB' ../../${{ github.event.repository.name }}/ ./ #.github/workflows repositoryB README.md .gitignoreを除外
+
+          git add -A
+          git commit -m "Sync changes from Repo A"
+
+      - name: Push changes to Repo B (with error handling)
+        run: |
+          cd repositoryB
+          git remote set-url origin "https://x-access-token:${{ secrets.REPO_SAND_TOKEN }}@github.com/YMEH-system/sandbox1.git"
+          if git push origin ${{ env.BRANCH_NAME }}; then
+            echo "Push successful!"
+          else
+            echo "Push failed!"
+            exit 1
+          fi
+
+      - name: Create Pull Request in Repo B (using GitHub CLI and error handling)
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SAND_TOKEN }}
+        run: |
+          cd repositoryB
+
+          if git branch -r | grep -q "origin/dev-digital"; then
+            echo "dev-digital branch exists."
+          else
+            echo "Error: dev-digital branch does not exist in Repo B."
+            exit 1
+          fi
+
+          if gh pr create --base dev-digital --head ${{ env.BRANCH_NAME }} --title "Sync changes from Repo A - ${{ env.BRANCH_NAME }}" --body "This is an automated pull request created from Repo A."; then
+             echo "Pull request created successfully!"
+          else
+             echo "Pull request creation failed."
+             exit 1
+          fi
